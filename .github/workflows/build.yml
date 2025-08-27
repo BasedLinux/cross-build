@@ -1,0 +1,70 @@
+name: Reproducible Format Build
+on: [push, pull_request]
+jobs:
+  build-x86:
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
+        system: [x86_64-linux, aarch64-linux]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build .#${{ matrix.format }}-${{ matrix.system }}
+      - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: x86-${{ matrix.format }}-${{ matrix.system }}
+          path: hashes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: x86-image-${{ matrix.format }}-${{ matrix.system }}
+          path: result*
+
+  build-arm:
+    runs-on: ubuntu-24.04-arm64
+    strategy:
+      matrix:
+        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
+        system: [x86_64-linux, aarch64-linux]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - run: nix build .#${{ matrix.format }}-${{ matrix.system }}
+      - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm-${{ matrix.format }}-${{ matrix.system }}
+          path: hashes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arm-image-${{ matrix.format }}-${{ matrix.system }}
+          path: result*
+
+  compare-and-publish:
+    runs-on: ubuntu-24.04
+    needs: [build-x86, build-arm]
+    strategy:
+      matrix:
+        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
+        system: [x86_64-linux, aarch64-linux]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86-${{ matrix.format }}-${{ matrix.system }}
+          path: x86
+      - uses: actions/download-artifact@v4
+        with:
+          name: arm-${{ matrix.format }}-${{ matrix.system }}
+          path: arm
+      - uses: actions/download-artifact@v4
+        with:
+          name: x86-image-${{ matrix.format }}-${{ matrix.system }}
+          path: images
+      - run: diff x86/hashes.txt arm/hashes.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: reproducible-${{ matrix.format }}-${{ matrix.system }}
+          path: images/*
