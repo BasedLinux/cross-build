@@ -11,10 +11,10 @@ jobs:
             host: x86_64
           - runner: ubuntu-24.04-arm64
             host: aarch64
-          - runner: [self-hosted, riscv64]
-            host: riscv64
+#          - runner: [self-hosted, riscv64]
+#            host: riscv64
         format: [amazon, azure, cloudstack, do, docker, gce, install-iso, iso, kexec, kexec-bundle, linode, lxc, lxc-metadata, openstack, qcow, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64]
-        system: [x86_64-linux, aarch64-linux, riscv64-linux]
+        system: [x86_64-linux, aarch64-linux] #, riscv64-linux]
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
