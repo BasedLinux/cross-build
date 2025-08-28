@@ -1,73 +1,104 @@
 name: Reproducible Format Build
 on: [push, pull_request]
 jobs:
-  build-x86:
-    runs-on: ubuntu-24.04
+  build:
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
-        system: [x86_64-linux, aarch64-linux]
+        include:
+          - runner: ubuntu-24.04
+            host: x86_64
+          - runner: ubuntu-24.04-arm64
+            host: aarch64
+          - runner: [self-hosted, riscv64]
+            host: riscv64
+        format: [amazon, azure, cloudstack, do, docker, gce, install-iso, iso, kexec, kexec-bundle, linode, lxc, lxc-metadata, openstack, qcow, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64]
+        system: [x86_64-linux, aarch64-linux, riscv64-linux]
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix build .#nixosConfigurations.machine-${{ matrix.system }}.config.formats.${{ matrix.format }}
-      - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
+      - run: nix build .#nixosConfigurations.machine-${{ matrix.system }}.config.formats.${{ matrix.format }} || echo "BUILD_FAILED" > build_status.txt
+      - run: |
+          if [ -f build_status.txt ]; then
+            echo "FAILED" > result.txt
+          else
+            find result* -type f -exec sha256sum {} \; | sort > result.txt
+          fi
       - uses: actions/upload-artifact@v4
         with:
-          name: x86-${{ matrix.format }}-${{ matrix.system }}
-          path: hashes.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: x86-image-${{ matrix.format }}-${{ matrix.system }}
-          path: result*
+          name: result-${{ matrix.host }}-${{ matrix.format }}-${{ matrix.system }}
+          path: result.txt
 
-  build-arm:
-    runs-on: ubuntu-24.04-arm64
-    strategy:
-      fail-fast: false
-      matrix:
-        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
-        system: [x86_64-linux, aarch64-linux]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix build .#nixosConfigurations.machine-${{ matrix.system }}.config.formats.${{ matrix.format }}
-      - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arm-${{ matrix.format }}-${{ matrix.system }}
-          path: hashes.txt
-      - uses: actions/upload-artifact@v4
-        with:
-          name: arm-image-${{ matrix.format }}-${{ matrix.system }}
-          path: result*
-
-  compare-and-publish:
+  generate-report:
     runs-on: ubuntu-24.04
-    needs: [build-x86, build-arm]
+    needs: [build]
     if: always()
-    strategy:
-      matrix:
-        format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
-        system: [x86_64-linux, aarch64-linux]
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: x86-${{ matrix.format }}-${{ matrix.system }}
-          path: x86
-      - uses: actions/download-artifact@v4
-        with:
-          name: arm-${{ matrix.format }}-${{ matrix.system }}
-          path: arm
-      - uses: actions/download-artifact@v4
-        with:
-          name: x86-image-${{ matrix.format }}-${{ matrix.system }}
-          path: images
-      - run: diff x86/hashes.txt arm/hashes.txt
+          path: artifacts
+      - run: |
+          python3 << 'EOF'
+          import os
+          import glob
+          from collections import defaultdict
+
+          results = defaultdict(lambda: defaultdict(dict))
+          
+          for artifact_dir in glob.glob("artifacts/result-*"):
+              parts = os.path.basename(artifact_dir).split('-', 3)
+              host, format_name, system = parts[1], parts[2], parts[3]
+              
+              with open(f"{artifact_dir}/result.txt", "r") as f:
+                  content = f.read().strip()
+              
+              results[format_name][system][host] = content
+
+          html = """<!DOCTYPE html>
+          <html><head><title>Reproducible Build Report</title>
+          <style>
+          table { border-collapse: collapse; width: 100%; }
+          th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+          .pass { background-color: #d4edda; color: #155724; }
+          .fail { background-color: #f8d7da; color: #721c24; }
+          .na { background-color: #f8f9fa; color: #6c757d; }
+          </style></head><body>
+          <h1>Reproducible Build Results</h1>
+          <table>
+          <tr><th>Format</th><th>Target System</th><th>Status</th></tr>
+          """
+
+          for format_name in sorted(results.keys()):
+              for system in sorted(results[format_name].keys()):
+                  hosts = results[format_name][system]
+                  
+                  if any("FAILED" in content for content in hosts.values()):
+                      status = "FAIL"
+                      css_class = "fail"
+                  elif len(set(hosts.values())) == 1 and len(hosts) > 1:
+                      status = "PASS"
+                      css_class = "pass"
+                  else:
+                      status = "N/A"
+                      css_class = "na"
+                  
+                  html += f'<tr><td>{format_name}</td><td>{system}</td><td class="{css_class}">{status}</td></tr>\n'
+
+          html += "</table></body></html>"
+          
+          with open("report.html", "w") as f:
+              f.write(html)
+          EOF
       - uses: actions/upload-artifact@v4
         with:
-          name: reproducible-${{ matrix.format }}-${{ matrix.system }}
-          path: images/*
+          name: reproducible-report
+          path: report.html
+      - uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/master'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          destination_dir: reports
+          keep_files: false

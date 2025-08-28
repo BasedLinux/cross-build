@@ -13,7 +13,10 @@
       mkMachine = system: nixpkgs.lib.nixosSystem {
         modules = [
           nixos-generators.nixosModules.all-formats
-          { nixpkgs.hostPlatform = system; }
+          { 
+            nixpkgs.hostPlatform = system;
+            boot.binfmt.emulatedSystems = ["x86_64-linux" "aarch64-linux" "riscv64-linux"];
+          }
         ];
       };
     in {
