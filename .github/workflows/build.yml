@@ -4,6 +4,7 @@ jobs:
   build-x86:
     runs-on: ubuntu-24.04
     strategy:
+      fail-fast: false
       matrix:
         format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
         system: [x86_64-linux, aarch64-linux]
@@ -11,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix build .#${{ matrix.format }}-${{ matrix.system }}
+      - run: nix build .#nixosConfigurations.machine-${{ matrix.system }}.config.formats.${{ matrix.format }}
       - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -25,6 +26,7 @@ jobs:
   build-arm:
     runs-on: ubuntu-24.04-arm64
     strategy:
+      fail-fast: false
       matrix:
         format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
         system: [x86_64-linux, aarch64-linux]
@@ -32,7 +34,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
-      - run: nix build .#${{ matrix.format }}-${{ matrix.system }}
+      - run: nix build .#nixosConfigurations.machine-${{ matrix.system }}.config.formats.${{ matrix.format }}
       - run: find result* -type f -exec sha256sum {} \; | sort > hashes.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -46,6 +48,7 @@ jobs:
   compare-and-publish:
     runs-on: ubuntu-24.04
     needs: [build-x86, build-arm]
+    if: always()
     strategy:
       matrix:
         format: [amazon, azure, cloudstack, do, docker, gce, hyperv, install-iso, install-iso-hyperv, iso, kexec, kexec-bundle, kubevirt, linode, lxc, lxc-metadata, openstack, proxmox, proxmox-lxc, qcow, qcow-efi, raw, raw-efi, sd-aarch64, sd-aarch64-installer, sd-x86_64, vagrant-virtualbox, virtualbox, vm, vm-bootloader, vm-nogui, vmware]
